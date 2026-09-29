@@ -74,6 +74,22 @@
           // Starlight's default ranking, as on GLIDE and Valkey Admin.
           ranking: { pageLength: 0.1, termFrequency: 0.1, termSaturation: 2, termSimilarity: 9 }
         });
+        // Load more results automatically: click Pagefind's "Load more results" button when it scrolls into view in the
+        // dropdown. Pagefind replaces the button after each load, so each new one is observed in turn.
+        var tagBox = document.getElementById('site-search');
+        var loadMore = 'IntersectionObserver' in window && new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting) entry.target.click();
+          });
+        }, { root: tagBox.querySelector('.pagefind-ui__drawer'), rootMargin: '0px 0px 100px 0px' });
+        var watchLoadMore = function () {
+          if (!loadMore) return;
+          tagBox.querySelectorAll('.pagefind-ui__button:not([data-autoload])').forEach(function (button) {
+            button.setAttribute('data-autoload', '');
+            loadMore.observe(button);
+          });
+        };
+        new MutationObserver(watchLoadMore).observe(tagBox, { childList: true, subtree: true });
       });
     </script>
 

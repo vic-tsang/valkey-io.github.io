@@ -2718,3 +2718,244 @@ blockquote {
   .calendar-day { min-height: 40px; font-size: 1.1rem; }
   .calendar-nav .calendar-nav-title { font-size: 1.8rem; min-width: auto; }
 }
+
+// Header search: show Pagefind results as a dropdown under the search box instead of expanding the header.
+.site-search {
+  position: relative;
+  // Pagefind's default input is 51px tall (64px * .8), which stretches the nav row; shrink it to match the links.
+  --pagefind-ui-scale: 0.55;
+  width: 220px;
+  flex: none;
+  align-self: center;
+  // Input outlined, with text and icon, in the logo blue (#6983ff). The results dropdown sets its own variables below.
+  --pagefind-ui-background: #fff;
+  --pagefind-ui-border: #6983ff;
+  --pagefind-ui-text: #6983ff;
+
+  .pagefind-ui__form .pagefind-ui__search-input::placeholder {
+    color: #6983ff;
+    opacity: 0.7;
+  }
+
+  // Pill-shaped input. Selectors are three classes deep to beat Pagefind's own rules, which load after styles.css.
+  .pagefind-ui__form .pagefind-ui__search-input,
+  .pagefind-ui__form .pagefind-ui__search-clear {
+    border-radius: 999px;
+  }
+
+  // Keep the same blue outline when focused: Pagefind's reset restores the browser's default focus ring, which changes the color.
+  .pagefind-ui__form .pagefind-ui__search-input:focus,
+  .pagefind-ui__form .pagefind-ui__search-clear:focus {
+    outline: none;
+  }
+
+  // Magnifier icon: Pagefind sizes it at 18px * scale (about 10px here). The doubled class beats Pagefind's
+  // equal-specificity rule, which loads after styles.css. Input height is 64px * scale = 35px, so top centers it.
+  .pagefind-ui__form.pagefind-ui__form::before {
+    width: 18px;
+    height: 18px;
+    top: 8.5px;
+    left: 14px;
+  }
+
+  // Make room for the larger icon (Pagefind's default left padding is 54px * scale).
+  .pagefind-ui__form .pagefind-ui__search-input {
+    padding-left: 40px;
+  }
+
+  // Clear button: Pagefind sizes it at 14px * scale, which is under 8px at this scale.
+  .pagefind-ui__form .pagefind-ui__search-clear {
+    font-family: inherit;
+    font-size: 1.4rem;
+    font-weight: 600;
+    padding: 0 16px 0 8px;
+    // Its opaque background is drawn over the input's outline at the right end; keep it transparent and inside the border.
+    background: transparent;
+    top: 3px;
+    right: 3px;
+    height: calc(100% - 6px);
+  }
+
+  // Match the other nav items (.header nav: 1.6rem, weight 600).
+  .pagefind-ui__form .pagefind-ui__search-input {
+    font-family: inherit;
+    font-size: 1.6rem;
+    font-weight: 600;
+  }
+
+  .pagefind-ui__drawer {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 100;
+    box-sizing: border-box;
+    width: min(600px, 90vw);
+    max-height: 70vh;
+    overflow-y: auto;
+    margin-top: 8px;
+    padding: 16px;
+    // Light blue-grey panel holding white result cards with dark purple text, like the blog post list. The variables are set here rather than on
+    // .site-search so the search input keeps its own colors.
+    // Results inherit the input's small 0.55 scale from .site-search; use a larger one so the text is readable.
+    --pagefind-ui-scale: 0.9;
+    --pagefind-ui-primary: #2d2471;
+    --pagefind-ui-text: #2d2471;
+    --pagefind-ui-background: #dfe4ed;
+    --pagefind-ui-border: #c4cbdb;
+    --pagefind-ui-tag: #eeecf9;
+    background: #dfe4ed;
+    color: #2d2471;
+    border: 1px solid #c4cbdb;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(45, 36, 113, 0.18);
+
+    // Pagefind lays the drawer out as a wrapping row of [filter panel | results] with a 54px gap and 18px margins.
+    // In this narrow dropdown they wrap onto separate rows, leaving a big empty band above the results count.
+    // !important because Pagefind's rules load after styles.css and have equal specificity.
+    gap: 0 !important;
+
+    .pagefind-ui__filter-panel,
+    .pagefind-ui__results-area {
+      margin-top: 0 !important;
+    }
+
+    // Pagefind pads each filter block by 20px * scale top and bottom, and the value list by 30px * scale on top; the
+    // drawer already has its own padding, so trim both. !important as for the rules above.
+    .pagefind-ui__filter-block {
+      padding-top: 0 !important;
+      padding-bottom: 12px !important;
+    }
+
+    .pagefind-ui__filter-group {
+      padding-top: 12px !important;
+    }
+
+    // The "N results for ..." line has fixed height plus 18px padding top and bottom; tighten it.
+    .pagefind-ui__message {
+      height: auto !important;
+      padding: 10px 0 !important;
+    }
+
+    // Hide the return arrow Pagefind draws before sub-result links. !important because Pagefind's rule has equal
+    // specificity and loads after styles.css.
+    .pagefind-ui__result-nested .pagefind-ui__result-link::before {
+      display: none !important;
+    }
+
+    // "Site: valkey.io" tag: move it above the title (.pagefind-ui__result-inner is a flex column) and make it a
+    // full pill. !important where Pagefind's rules have equal specificity and load after styles.css.
+    .pagefind-ui__result-tags {
+      order: -1;
+      margin-top: 0 !important;
+      margin-bottom: 6px;
+    }
+
+    .pagefind-ui__result-tag,
+    .search-filter-pill {
+      padding: 2px 12px !important;
+      border-radius: 999px !important;
+      background-color: $purple-200 !important;
+      color: #fff;
+      font-weight: 600;
+    }
+
+    // Space between the filter pill and its " (count)".
+    .search-filter-pill {
+      margin-right: 4px;
+    }
+
+    // Each result is a white card on the grey panel, with an uppercase purple title like the blog post list.
+    .pagefind-ui__result {
+      margin-bottom: 12px;
+      padding: 14px 16px !important;
+      background: #fff;
+      border: 0 !important;
+      border-radius: 12px;
+    }
+
+    .pagefind-ui__result-title {
+      font-size: 15px !important;
+      text-transform: uppercase;
+      color: #2d2471;
+    }
+
+    .pagefind-ui__result-excerpt {
+      color: #1a1a1a;
+    }
+
+    // Space out sub-results. !important on padding-top because Pagefind only pads the first one and its rule has
+    // equal specificity and loads after styles.css.
+    .pagefind-ui__result-nested {
+      padding-top: 14px !important;
+    }
+
+    // The search box lives inside .header nav, so its links inherit the nav link styles: nowrap (which makes long
+    // titles overflow the card on mobile), padding, a bottom border, and on mobile display:block and width:100%.
+    // Reset them. !important because the mobile rule (.header nav.active a) is more specific.
+    a {
+      color: #2d2471;
+      white-space: normal !important;
+      padding: 0 !important;
+      border: 0 !important;
+      display: inline !important;
+      width: auto !important;
+    }
+
+    // Also inherited from the nav: bold 1.6rem text. Let long words wrap instead of widening the card.
+    font-weight: 400;
+    overflow-wrap: anywhere;
+
+    // Matched words in excerpts: light purple highlight instead of the default.
+    mark {
+      background: #e4e0f7;
+      color: inherit;
+      font-weight: 700;
+    }
+
+    // Nothing to show until a search runs.
+    &.pagefind-ui__hidden {
+      display: none;
+    }
+  }
+
+  // Mobile: the search box lives in the hamburger menu, so it fills the menu width, and the results open as a
+  // popup over the rest of the menu, under the input, as on desktop.
+  @media (max-width: 1024px) {
+    --pagefind-ui-scale: 0.8;
+    width: 100%;
+    // First item of the hamburger menu (the nav is a flex column here; other items default to order 0).
+    order: -1;
+
+    // Input is 64px * 0.8 = 51px tall here.
+    .pagefind-ui__form.pagefind-ui__form::before {
+      top: 16.5px;
+    }
+
+    .pagefind-ui__drawer {
+      left: 0;
+      right: 0;
+      width: auto;
+      max-height: 60vh;
+    }
+
+    // Tablets (iPad) in the hamburger layout: a search box 30% of the screen wide, aligned left, instead of the
+    // full menu width. The results keep the desktop dropdown width rather than shrinking with the box.
+    @media (min-width: 768px) {
+      width: 30vw;
+      max-width: 100%;
+      // The base rule centers it (align-self: center), which in the menu's column layout means horizontally.
+      align-self: flex-start;
+
+      .pagefind-ui__drawer {
+        right: auto;
+        width: min(600px, 90vw);
+      }
+    }
+  }
+}
+
+// Search term in the "N results for <term>" line (set by the Custom Highlight API script in head.html).
+::highlight(search-term) {
+  background-color: #e4e0f7;
+  color: #2d2471;
+}
