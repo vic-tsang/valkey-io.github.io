@@ -26,6 +26,23 @@ Open your browser to `http://127.0.0.1:1111/`
 Zola will automatically rebuild on changes to the template or any content stored in this repo.
 Changes to external content (command reference, documentation topics) require a restart of the Zola server process (`ctrl-c` then `zola serve` again, a browser refresh may also be needed).
 
+### Trying site search locally (optional)
+
+`zola serve` doesn't build the search index, so the header has no search box.
+To try search, download the `pagefind` binary for your platform from the [Pagefind releases](https://github.com/Pagefind/pagefind/releases)
+(the version in `build/pagefind-step.sh`) and run, from the root of this repo:
+
+```shell
+zola build && pagefind --serve
+```
+
+Open the URL Pagefind prints (usually `http://localhost:1414/`). Pagefind reads its settings from `pagefind.yml`.
+Results from GLIDE and Valkey Admin come from their published sites.
+This server doesn't reload on changes: run the command again after editing.
+
+To keep Zola's live reload, run `zola serve --store-html` in one terminal and `pagefind` in another.
+Run `pagefind` again after editing, then refresh the browser.
+
 ## Building additional content
 
 **By default, the site will build without documentation topics, command reference, or the clients page.**

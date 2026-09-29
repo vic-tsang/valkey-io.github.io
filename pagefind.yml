@@ -1,0 +1,19 @@
+# Pagefind configuration for the post-build search index (see build/pagefind-step.sh).
+# Pagefind reads this file from the directory it runs in.
+site: public
+
+# Index only the page content. Every template renders its content inside <div class="body">;
+# the banner, header and footers sit outside it. Using a root selector avoids adding
+# data-pagefind-body to each template (which would also drop any template that lacks it).
+root_selector: ".body"
+
+# Related-content sidebars (command group lists, recent posts) repeat across many pages.
+exclude_selectors:
+  - "aside"
+  # The footer normally sits outside .body, but a page whose template leaves a <div> unclosed
+  # (templates/leadership.html today) nests it inside; exclude it explicitly.
+  - ".footer"
+
+# Index only the directory pages Zola renders (index.html). This skips 404.html and the
+# root-level *.html alias stubs (slack.html, connect.html, code_of_conduct.html).
+glob: "**/index.html"

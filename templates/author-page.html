@@ -4,7 +4,7 @@
     {% set author_page = page %}
     {% include "includes/author_panel.html" %}
     {% set blog_section = get_section(path="blog/_index.md") %}
-    <h4>Posts by {{page.title}}</h4>
+    <h4 data-pagefind-meta="title:{{ page.title }}">Posts by {{page.title}}</h4>
     <ul>
     {% for blogpost in blog_section.pages %}
         {% if page.slug in blogpost.authors  %}

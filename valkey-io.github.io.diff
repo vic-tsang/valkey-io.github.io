@@ -1,0 +1,393 @@
+diff --git a/.github/workflows/search-index-check.yml b/.github/workflows/search-index-check.yml
+new file mode 100644
+index 0000000..cb70a37
+--- /dev/null
++++ b/.github/workflows/search-index-check.yml
+@@ -0,0 +1,19 @@
++name: Check merged search indexes
++
++# valkey.io's search merges the GLIDE and Valkey Admin Pagefind indexes. Those sites deploy on their own
++# schedules, so a change there can break the merge without any valkey.io build. This runs the same check daily.
++on:
++  schedule:
++    - cron: "23 6 * * *"
++  workflow_dispatch:
++
++permissions:
++  contents: read
++
++jobs:
++  check:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - name: Compare the live Pagefind versions
++        run: ./build/check-merged-pagefind-versions.sh "$(curl -fsS https://valkey.io/pagefind/pagefind-entry.json | jq -r .version)" static/pagefind-merge.js
+diff --git a/.github/workflows/zola-deploy.yml b/.github/workflows/zola-deploy.yml
+index 9e39ec3..df75a47 100644
+--- a/.github/workflows/zola-deploy.yml
++++ b/.github/workflows/zola-deploy.yml
+@@ -70,6 +70,17 @@ jobs:
+           BUILD_ONLY: true
+           BUILD_THEMES: false
+ 
++      - name: Build search index
++        working-directory: website
++        run: ./build/pagefind-step.sh
++
++      # Reports (without failing the deploy) when a merged index is missing or on another Pagefind version.
++      # The daily search-index-check.yml run is the one that fails, because the other sites deploy independently.
++      - name: Check merged search indexes
++        working-directory: website
++        continue-on-error: true
++        run: ./build/check-merged-pagefind-versions.sh "$(jq -r .version public/pagefind/pagefind-entry.json)" static/pagefind-merge.js
++
+       - name: Upload artifact
+         if: github.event_name != 'pull_request'
+         uses: actions/upload-pages-artifact@v3
+diff --git a/README.md b/README.md
+index 8b0c482..820e5f8 100644
+--- a/README.md
++++ b/README.md
+@@ -26,6 +26,23 @@ Open your browser to `http://127.0.0.1:1111/`
+ Zola will automatically rebuild on changes to the template or any content stored in this repo.
+ Changes to external content (command reference, documentation topics) require a restart of the Zola server process (`ctrl-c` then `zola serve` again, a browser refresh may also be needed).
+ 
++### Trying site search locally (optional)
++
++`zola serve` doesn't build the search index, so the header has no search box.
++To try search, download the `pagefind` binary for your platform from the [Pagefind releases](https://github.com/Pagefind/pagefind/releases)
++(the version in `build/pagefind-step.sh`) and run, from the root of this repo:
++
++```shell
++zola build && pagefind --serve
++```
++
++Open the URL Pagefind prints (usually `http://localhost:1414/`). Pagefind reads its settings from `pagefind.yml`.
++Results from GLIDE and Valkey Admin come from their published sites.
++This server doesn't reload on changes: run the command again after editing.
++
++To keep Zola's live reload, run `zola serve --store-html` in one terminal and `pagefind` in another.
++Run `pagefind` again after editing, then refresh the browser.
++
+ ## Building additional content
+ 
+ **By default, the site will build without documentation topics, command reference, or the clients page.**
+diff --git a/build/check-merged-pagefind-versions.sh b/build/check-merged-pagefind-versions.sh
+new file mode 100755
+index 0000000..101eb0d
+--- /dev/null
++++ b/build/check-merged-pagefind-versions.sh
+@@ -0,0 +1,33 @@
++#!/usr/bin/env bash
++# Checks that every Pagefind index this site's search merges is reachable and was built with a compatible
++# Pagefind version. With Pagefind's own mergeIndex, a merged index that is missing or unreachable stops the
++# whole search box (valkey.io's template checks first and skips it), and
++# Pagefind 1.5 changed the index format, so merging across 1.4/1.5 gives wrong results or no search at all.
++# 1.5.0 and 1.5.2 (and 1.3.0 and 1.4.0) were compatible in testing, so major.minor is compared.
++#
++# Usage: check-merged-pagefind-versions.sh <this site's Pagefind version> <file that lists the merged bundle URLs>
++#   The bundle URLs (https://<host>/pagefind/) are read from the file that configures mergeIndex, so the list
++#   isn't kept in two places: static/pagefind-merge.js on valkey.io, astro.config.mjs on the Starlight sites.
++# Needs only curl and jq. CURL_ARGS adds curl options (used for local tests: --connect-to, --cacert).
++set -euo pipefail
++local_version=$1
++bundles=$(grep -Eo 'https://[A-Za-z0-9.-]+/pagefind/' "$2" | sort -u)
++if [ -z "$bundles" ]; then
++  echo "No merged Pagefind bundle URLs found in $2" >&2
++  exit 1
++fi
++
++failed=0
++for bundle in $bundles; do
++  # shellcheck disable=SC2086  # CURL_ARGS is a list of options
++  if ! version=$(curl -fsS --max-time 20 ${CURL_ARGS:-} "${bundle}pagefind-entry.json" | jq -er .version); then
++    echo "::error::${bundle}pagefind-entry.json can't be read. Merging it fails while it is missing."
++    failed=1
++  elif [ "${version%.*}" != "${local_version%.*}" ]; then
++    echo "::error::${bundle} was built with Pagefind ${version}, this site with ${local_version}. Merged search needs the same major.minor version."
++    failed=1
++  else
++    echo "ok: ${bundle} Pagefind ${version} (this site ${local_version})"
++  fi
++done
++exit "$failed"
+diff --git a/build/check-search-index.sh b/build/check-search-index.sh
+new file mode 100755
+index 0000000..a789f5b
+--- /dev/null
++++ b/build/check-search-index.sh
+@@ -0,0 +1,42 @@
++#!/bin/bash
++# Checks the Pagefind index built by build/pagefind-step.sh.
++# Usage: build/check-search-index.sh [public-dir]     (needs only bash, find, grep, gzip, sed, sort, comm)
++#
++# 1. Coverage: every full HTML page Zola rendered, other than redirects (alias stubs and external
++#    event pages carry http-equiv="refresh"), must be in the index. The expected list doesn't depend
++#    on pagefind.yml, so a root selector that stops matching shows up as missing pages.
++# 2. Scoping: the site footer must not be in any record. If scoping stops working, Pagefind indexes
++#    whole pages and the footer text appears in every record.
++set -euo pipefail
++public=${1:-public}
++footer_sentinel="Valkey and the Valkey logo are trademarks of LF Projects"
++
++expected=$(mktemp); indexed=$(mktemp); records=$(mktemp)
++find "$public" -name index.html -not -path "$public/pagefind/*" -print0 \
++  | xargs -0 grep -L 'http-equiv="refresh"' \
++  | xargs grep -l '<html' \
++  | sed -e "s|^$public||" -e 's|index\.html$||' | sort > "$expected"
++
++# Each fragment is gzip("pagefind_dcd" + one line of JSON) whose first key is the page URL.
++for fragment in "$public"/pagefind/fragment/*.pf_fragment; do gzip -dc "$fragment"; echo; done > "$records"
++sed -n 's|^pagefind_dcd{"url":"\([^"]*\)".*|\1|p' "$records" | sort > "$indexed"
++footer_hits=$(grep -cF "$footer_sentinel" "$records" || true)
++
++missing=$(comm -23 "$expected" "$indexed")
++echo "Search index: $(wc -l < "$indexed" | tr -d ' ') records; $(wc -l < "$expected" | tr -d ' ') rendered pages expected; footer text in ${footer_hits} records"
++status=0
++if [ ! -s "$indexed" ]; then
++  echo "The search index is empty" >&2
++  status=1
++fi
++if [ -n "$missing" ]; then
++  echo "Pages missing from the search index ($(wc -l <<< "$missing" | tr -d ' ')):" >&2
++  echo "$missing" >&2
++  status=1
++fi
++if [ "$footer_hits" -gt 0 ]; then
++  echo "The site footer was indexed in ${footer_hits} records: check root_selector and exclude_selectors in pagefind.yml" >&2
++  grep -F "$footer_sentinel" "$records" | sed -n 's|^pagefind_dcd{"url":"\([^"]*\)".*|  \1|p' >&2
++  status=1
++fi
++exit $status
+diff --git a/build/pagefind-step.sh b/build/pagefind-step.sh
+new file mode 100755
+index 0000000..e2b9da2
+--- /dev/null
++++ b/build/pagefind-step.sh
+@@ -0,0 +1,21 @@
++#!/bin/bash
++# Builds the Pagefind search index over the rendered site in ./public (settings in pagefind.yml).
++# Runs after `zola build` in .github/workflows/zola-deploy.yml. Needs only curl and tar:
++# Pagefind is a single static binary, so no Node or Python toolchain is installed.
++set -euo pipefail
++
++PAGEFIND_VERSION="1.5.2"
++asset="pagefind-v${PAGEFIND_VERSION}-x86_64-unknown-linux-musl.tar.gz"
++url="https://github.com/Pagefind/pagefind/releases/download/v${PAGEFIND_VERSION}/${asset}"
++
++workdir="$(mktemp -d)"
++curl -fsSL "$url" -o "$workdir/$asset"
++curl -fsSL "$url.sha256" -o "$workdir/$asset.sha256"
++(cd "$workdir" && sha256sum -c "$asset.sha256")
++tar -xzf "$workdir/$asset" -C "$workdir"
++
++"$workdir/pagefind" --version
++"$workdir/pagefind"
++
++# Fails the build if a rendered page is missing from the index or the site footer was indexed.
++./build/check-search-index.sh public
+diff --git a/pagefind.yml b/pagefind.yml
+new file mode 100644
+index 0000000..3271107
+--- /dev/null
++++ b/pagefind.yml
+@@ -0,0 +1,19 @@
++# Pagefind configuration for the post-build search index (see build/pagefind-step.sh).
++# Pagefind reads this file from the directory it runs in.
++site: public
++
++# Index only the page content. Every template renders its content inside <div class="body">;
++# the banner, header and footers sit outside it. Using a root selector avoids adding
++# data-pagefind-body to each template (which would also drop any template that lacks it).
++root_selector: ".body"
++
++# Related-content sidebars (command group lists, recent posts) repeat across many pages.
++exclude_selectors:
++  - "aside"
++  # The footer normally sits outside .body, but a page whose template leaves a <div> unclosed
++  # (templates/leadership.html today) nests it inside; exclude it explicitly.
++  - ".footer"
++
++# Index only the directory pages Zola renders (index.html). This skips 404.html and the
++# root-level *.html alias stubs (slack.html, connect.html, code_of_conduct.html).
++glob: "**/index.html"
+diff --git a/static/pagefind-merge.js b/static/pagefind-merge.js
+new file mode 100644
+index 0000000..c6bc663
+--- /dev/null
++++ b/static/pagefind-merge.js
+@@ -0,0 +1,86 @@
++// Cross-site search: merges the GLIDE and Valkey Admin Pagefind indexes into this site's search.
++//
++// Why not PagefindUI's `mergeIndex` option: Pagefind then stops the whole search box (this site's results
++// too) if any merged index is missing, unreachable, or built with an incompatible Pagefind version (Pagefind issue #887).
++// Instead, this script reads each other site's index first, and merges it only if it is readable and was built with
++// the same major.minor Pagefind version as this site's index.
++//
++// It merges into the pagefind.js module that the search box itself imports (/pagefind/pagefind.js), so the search box
++// searches the merged indexes. valkey.io, GLIDE and Valkey Admin use the same script with different settings.
++const otherSites = ["https://glide.valkey.io/pagefind/", "https://valkey-admin.valkey.io/pagefind/"];
++const searchBox = "#site-search";
++// Starlight's default ranking. GLIDE and Valkey Admin apply it to their own index and valkey.io sets it too,
++// so a query ranks the same on all three sites.
++const ranking = { pageLength: 0.1, termFrequency: 0.1, termSaturation: 2, termSimilarity: 9 };
++// The search box sets a 12-word excerpt on this site's index only; merged indexes would default to 30.
++const excerptLength = 12;
++// Every search waits for every merged index, so a site that answers much more slowly than this one would slow down
++// every search. Such a site is left out for this page view. A slow network slows both, so they still merge.
++const slowSiteFactor = 3;
++const slowSiteAllowanceMs = 2000;
++// Stop waiting for a site that doesn't answer at all.
++const giveUpAfterMs = 30000;
++
++// Reads an index's entry file and the metadata file the entry names. Returns the major.minor Pagefind version
++// (null if either read fails) and how long the reads took. Reading the metadata file catches an entry that names
++// files a newer deploy has removed, and leaves the file in the HTTP cache for Pagefind.
++async function readIndex(bundlePath) {
++  const started = performance.now();
++  const elapsed = () => performance.now() - started;
++  try {
++    const signal = AbortSignal.timeout(giveUpAfterMs);
++    const response = await fetch(bundlePath + "pagefind-entry.json", { signal });
++    if (!response.ok) return { version: null, ms: elapsed() };
++    const entry = await response.json();
++    const languages = entry.languages || {};
++    const language = languages[document.documentElement.lang] || Object.values(languages)[0];
++    if (!entry.version || !language) return { version: null, ms: elapsed() };
++    const meta = await fetch(`${bundlePath}pagefind.${language.hash}.pf_meta`, { signal });
++    if (!meta.ok) return { version: null, ms: elapsed() };
++    return { version: entry.version.split(".").slice(0, 2).join("."), ms: elapsed() };
++  } catch {
++    return { version: null, ms: elapsed() };
++  }
++}
++
++// A site merged after the visitor has typed a query: run the query again so that site's results appear.
++// The search box only searches when the text changes, so the text is changed and changed back.
++function searchAgain() {
++  const input = document.querySelector(`${searchBox} input`);
++  if (!input || !input.value) return;
++  const query = input.value;
++  input.value = query + " ";
++  input.dispatchEvent(new Event("input", { bubbles: true }));
++  input.value = query;
++  input.dispatchEvent(new Event("input", { bubbles: true }));
++}
++
++async function mergeOtherSites() {
++  const thisSite = Promise.all([import("/pagefind/pagefind.js"), readIndex("/pagefind/")]);
++  await Promise.all(
++    otherSites.map(async (bundlePath) => {
++      const [other, [pagefind, own]] = await Promise.all([readIndex(bundlePath), thisSite]);
++      const compatible = own.version !== null && other.version === own.version;
++      const tooSlow = other.ms > own.ms * slowSiteFactor + slowSiteAllowanceMs;
++      if (!compatible) {
++        console.warn(`Search: not merging ${bundlePath} (index version ${other.version}, this site ${own.version})`);
++        return;
++      }
++      if (tooSlow) {
++        console.warn(`Search: not merging ${bundlePath} (answered in ${Math.round(other.ms)} ms, this site in ${Math.round(own.ms)} ms)`);
++        return;
++      }
++      await pagefind.mergeIndex(bundlePath, { ranking, excerptLength });
++      searchAgain();
++    }),
++  );
++}
++
++// Start when the visitor first focuses or types into the search box; the search box loads Pagefind then too.
++let merging = null;
++function startMerging(event) {
++  if (merging || !event.target.closest?.(searchBox)) return;
++  merging = mergeOtherSites();
++}
++document.addEventListener("focusin", startMerging, true);
++document.addEventListener("input", startMerging, true);
+diff --git a/templates/author-page.html b/templates/author-page.html
+index ef9255e..90ea3da 100644
+--- a/templates/author-page.html
++++ b/templates/author-page.html
+@@ -4,7 +4,7 @@
+     {% set author_page = page %}
+     {% include "includes/author_panel.html" %}
+     {% set blog_section = get_section(path="blog/_index.md") %}
+-    <h4>Posts by {{page.title}}</h4>
++    <h4 data-pagefind-meta="title:{{ page.title }}">Posts by {{page.title}}</h4>
+     <ul>
+     {% for blogpost in blog_section.pages %}
+         {% if page.slug in blogpost.authors  %}
+diff --git a/templates/authors.html b/templates/authors.html
+index b6e3036..813d594 100644
+--- a/templates/authors.html
++++ b/templates/authors.html
+@@ -1,7 +1,7 @@
+ {% extends "default.html" %}
+ 
+ {% block content %}
+-<ul>
++<ul data-pagefind-meta="title:{{ section.title }}">
+   {% for page in section.pages %}
+   <li><a href="{{ page.permalink | safe }}">{{ page.title }}</a></li>
+   {% endfor %}
+diff --git a/templates/default.html b/templates/default.html
+index 10efa26..24023e2 100644
+--- a/templates/default.html
++++ b/templates/default.html
+@@ -69,9 +69,12 @@
+         </a>
+         
+       </nav>
++      <div id="site-search" class="site-search"></div>
+     </div>
+   </div>
+   <div class="body">
++      {# Names this site in search results (label and filter). Inside .body because pagefind.yml's root_selector limits filters and metadata to it. #}
++      <span hidden data-pagefind-filter="site:valkey.io" data-pagefind-meta="site:valkey.io"></span>
+       {% block content %}{% endblock %}
+   </div>
+   <div class="footer">
+diff --git a/templates/event-page.html b/templates/event-page.html
+index 993c086..a80d653 100644
+--- a/templates/event-page.html
++++ b/templates/event-page.html
+@@ -7,7 +7,7 @@
+ {% block content %}
+ {% if not page.extra.external_url %}
+ <div class="styled-title event-title">
+-    <h1>{% if page.extra and page.extra.event_logo %}
++    <h1 data-pagefind-meta="title:{{ page.title }}">{% if page.extra and page.extra.event_logo %}
+             <img src="{{page.extra.event_logo}}" alt="{{page.title}}" />
+         {% else %}
+             {{ page.title }}
+diff --git a/templates/includes/head.html b/templates/includes/head.html
+index 2cf261a..31e8892 100644
+--- a/templates/includes/head.html
++++ b/templates/includes/head.html
+@@ -57,6 +57,26 @@
+     <link rel="stylesheet" href="/css/styles.css">
+     <link rel="alternate" type="application/atom+xml" title="Atom feed" href="{{ get_url(path="atom.xml", trailing_slash=false) }}" />
+ 
++    <!-- Site search: Pagefind index built by build/pagefind-step.sh. pagefind-merge.js adds the GLIDE and Valkey Admin indexes. -->
++    <link rel="stylesheet" href="/pagefind/pagefind-ui.css">
++    <!-- defer: the search box isn't needed for first paint; deferred scripts still run before DOMContentLoaded -->
++    <script src="/pagefind/pagefind-ui.js" defer></script>
++    <script type="module" src="/pagefind-merge.js"></script>
++    <script>
++      window.addEventListener('DOMContentLoaded', function () {
++        // Without a built index (plain `zola serve`) pagefind-ui.js is missing: leave the header without a search box.
++        if (typeof PagefindUI === 'undefined') return;
++        new PagefindUI({
++          element: '#site-search',
++          showSubResults: true,
++          // Starlight hides result images too. Merged sites' image paths aren't rebased, and thumbnails are full-size images.
++          showImages: false,
++          // Starlight's default ranking, as on GLIDE and Valkey Admin.
++          ranking: { pageLength: 0.1, termFrequency: 0.1, termSaturation: 2, termSimilarity: 9 }
++        });
++      });
++    </script>
++
+     <!-- Nav JS -->
+     <script src="/assets/js/nav.js"></script>
+ 

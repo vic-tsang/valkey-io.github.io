@@ -70,6 +70,17 @@ jobs:
           BUILD_ONLY: true
           BUILD_THEMES: false
 
+      - name: Build search index
+        working-directory: website
+        run: ./build/pagefind-step.sh
+
+      # Reports (without failing the deploy) when a merged index is missing or on another Pagefind version.
+      # The daily search-index-check.yml run is the one that fails, because the other sites deploy independently.
+      - name: Check merged search indexes
+        working-directory: website
+        continue-on-error: true
+        run: ./build/check-merged-pagefind-versions.sh "$(jq -r .version public/pagefind/pagefind-entry.json)" static/pagefind-merge.js
+
       - name: Upload artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3

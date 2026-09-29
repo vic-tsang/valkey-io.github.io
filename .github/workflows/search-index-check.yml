@@ -1,0 +1,19 @@
+name: Check merged search indexes
+
+# valkey.io's search merges the GLIDE and Valkey Admin Pagefind indexes. Those sites deploy on their own
+# schedules, so a change there can break the merge without any valkey.io build. This runs the same check daily.
+on:
+  schedule:
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare the live Pagefind versions
+        run: ./build/check-merged-pagefind-versions.sh "$(curl -fsS https://valkey.io/pagefind/pagefind-entry.json | jq -r .version)" static/pagefind-merge.js

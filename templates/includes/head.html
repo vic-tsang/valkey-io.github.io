@@ -57,6 +57,26 @@
     <link rel="stylesheet" href="/css/styles.css">
     <link rel="alternate" type="application/atom+xml" title="Atom feed" href="{{ get_url(path="atom.xml", trailing_slash=false) }}" />
 
+    <!-- Site search: Pagefind index built by build/pagefind-step.sh. pagefind-merge.js adds the GLIDE and Valkey Admin indexes. -->
+    <link rel="stylesheet" href="/pagefind/pagefind-ui.css">
+    <!-- defer: the search box isn't needed for first paint; deferred scripts still run before DOMContentLoaded -->
+    <script src="/pagefind/pagefind-ui.js" defer></script>
+    <script type="module" src="/pagefind-merge.js"></script>
+    <script>
+      window.addEventListener('DOMContentLoaded', function () {
+        // Without a built index (plain `zola serve`) pagefind-ui.js is missing: leave the header without a search box.
+        if (typeof PagefindUI === 'undefined') return;
+        new PagefindUI({
+          element: '#site-search',
+          showSubResults: true,
+          // Starlight hides result images too. Merged sites' image paths aren't rebased, and thumbnails are full-size images.
+          showImages: false,
+          // Starlight's default ranking, as on GLIDE and Valkey Admin.
+          ranking: { pageLength: 0.1, termFrequency: 0.1, termSaturation: 2, termSimilarity: 9 }
+        });
+      });
+    </script>
+
     <!-- Nav JS -->
     <script src="/assets/js/nav.js"></script>
 
